@@ -39,6 +39,16 @@ export type MacOSNotarizationEnvironment =
   | MacOSApiKeyNotarizationEnvironment
   | MacOSKeychainNotarizationEnvironment
 
+/** Signing identity of a local, certificate-free macOS build; it carries no authority or team. */
+export const MACOS_ADHOC_SIGNING_IDENTITY: '-'
+
+/**
+ * Detect the local certificate-free macOS signing mode.
+ * @param env - Packaging environment.
+ * @returns True when the selected macOS identity is the ad-hoc placeholder.
+ */
+export function isMacOSAdHocSigning(env: NodeJS.ProcessEnv): boolean
+
 /**
  * Resolve and validate the application identifier shared by every platform target.
  * @param env - Packaging environment.

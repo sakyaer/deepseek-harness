@@ -32,6 +32,21 @@ function requireEnvironmentValue(env, name) {
   return value
 }
 
+/** Signing identity of a local, certificate-free macOS build; it carries no authority or team. */
+export const MACOS_ADHOC_SIGNING_IDENTITY = '-'
+
+/**
+ * Detect the local certificate-free macOS signing mode.
+ * An ad-hoc build has no Developer ID certificate, so notarization, the packaged
+ * signing keychain, and the published updater feed are all unavailable to it.
+ * @param {NodeJS.ProcessEnv} env - Packaging environment.
+ * @returns {boolean} True when the selected macOS identity is the ad-hoc placeholder.
+ */
+export function isMacOSAdHocSigning(env) {
+  const identity = env[MACOS_SIGNING_IDENTITY_ENV]?.trim()
+  return identity === MACOS_ADHOC_SIGNING_IDENTITY || identity === 'adhoc'
+}
+
 /**
  * Resolve and validate the application identifier shared by every platform target.
  * @param {NodeJS.ProcessEnv} env - Packaging environment.

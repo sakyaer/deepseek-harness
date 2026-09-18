@@ -2,7 +2,7 @@
 
 import { spawn, spawnSync } from 'node:child_process'
 import { resolve } from 'node:path'
-import { resolveMacOSSigningEnvironment } from './desktop-release-environment.mjs'
+import { MACOS_ADHOC_SIGNING_IDENTITY, resolveMacOSSigningEnvironment } from './desktop-release-environment.mjs'
 import { loadDesktopPackageEnvironment } from './desktop-package-environment.mjs'
 
 /**
@@ -12,6 +12,8 @@ import { loadDesktopPackageEnvironment } from './desktop-package-environment.mjs
  * @returns {void}
  */
 export function assertMacOSSignatureDetails(details, expected) {
+  // A local ad-hoc signature carries no Authority or TeamIdentifier metadata to match.
+  if (expected.signingIdentity === MACOS_ADHOC_SIGNING_IDENTITY) return
   const fields = new Set(details.split(/\r?\n/u).map(line => line.trim()))
   const expectedAuthority = `Authority=Developer ID Application: ${expected.signingIdentity}`
   const expectedTeam = `TeamIdentifier=${expected.teamId}`
@@ -29,6 +31,8 @@ export function assertMacOSSignatureDetails(details, expected) {
  */
 export function assertMacOSRuntimeSignatureDetails(details, expected) {
   assertMacOSSignatureDetails(details, expected)
+  // An ad-hoc signature has no trusted timestamp, so no sealed-runtime property is required of it.
+  if (expected.signingIdentity === MACOS_ADHOC_SIGNING_IDENTITY) return
   const fields = details.split(/\r?\n/u).map(line => line.trim())
   if (!fields.some(line => /^Timestamp=.+/u.test(line))) {
     throw new Error('desktop macOS signing: runtime signature has no secure timestamp')
@@ -108,6 +112,8 @@ function runCodeSign(args) {
 
 /**
  * Sign one Mach-O file using the packaging-owned CSC_KEYCHAIN; missing setup rejects before signing.
+ * An ad-hoc identity instead skips the keychain, the trusted timestamp, and the hardened runtime it
+ * cannot combine with the ad-hoc libraries the runtime ships.
  * @param {string} path - Writable standalone Mach-O file.
  * @param {string} identifier - Stable code-signing identifier derived from the release app ID and CAS digest.
  * @param {{ signingIdentity: string, teamId: string }} expected - Public release identity.
@@ -115,18 +121,20 @@ function runCodeSign(args) {
  * @returns {Promise<void>} Resolves after codesign exits successfully.
  */
 export async function signMacOSRuntimeCode(path, identifier, expected, entitlements) {
+  const adhoc = expected.signingIdentity === MACOS_ADHOC_SIGNING_IDENTITY
   const keychain = process.env.CSC_KEYCHAIN
-  if (!keychain) throw new Error('desktop macOS signing: run through the package command to prepare the signing keychain')
-  await runAppleCommandAsync('/usr/bin/codesign', [
-    '--force',
-    '--sign', expected.signingIdentity,
-    '--keychain', keychain,
-    '--identifier', identifier,
-    '--timestamp',
-    '--options', 'runtime',
-    ...(entitlements === undefined ? [] : ['--entitlements', entitlements]),
-    path,
-  ], 'codesign')
+  // An ad-hoc identity lives in no keychain and cannot carry a timestamp, so neither is required.
+  if (!adhoc && !keychain) throw new Error('desktop macOS signing: run through the package command to prepare the signing keychain')
+  const args = ['--force', '--sign', expected.signingIdentity]
+  if (!adhoc) args.push('--keychain', keychain)
+  args.push('--identifier', identifier)
+  if (!adhoc) args.push('--timestamp')
+  // Hardened runtime enforces library validation, which an ad-hoc process cannot satisfy when it
+  // loads the ad-hoc shared libraries shipped by the runtime wheels; a local build omits both.
+  if (!adhoc) args.push('--options', 'runtime')
+  if (entitlements !== undefined) args.push('--entitlements', entitlements)
+  args.push(path)
+  await runAppleCommandAsync('/usr/bin/codesign', args, 'codesign')
 }
 
 /**

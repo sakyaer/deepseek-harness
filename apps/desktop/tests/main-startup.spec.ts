@@ -112,9 +112,11 @@ const harness = await vi.hoisted(async () => {
       readonly packageManager?: { pnpm: string; nodeBin: string },
     ) { hosts.push(this) }
   }
+  const dock = { setIcon: vi.fn<(icon: string) => void>() }
   const app = Object.assign(new EventEmitter(), {
     isPackaged: true,
     name: 'Desktop test',
+    dock,
     whenReady: () => Promise.resolve(),
     getLocale: (): string => 'en-US',
     getVersion: () => '1.0.0',
@@ -166,6 +168,7 @@ const harness = await vi.hoisted(async () => {
       powerMonitor.removeAllListeners()
       app.isPackaged = true
       windowFailure = undefined
+      dock.setIcon.mockClear()
       pluginsEnabled = false
       closeWindowsOnQuit = false
       prepareUpdate = undefined
@@ -1304,6 +1307,10 @@ describe('desktop main startup', () => {
     vi.stubEnv('DSH_DESKTOP_DSH_DIR', undefined)
     await import('../src/main.ts')
     await harness.preparing.promise
+    expect(harness.app.dock.setIcon).toHaveBeenCalledTimes(process.platform === 'darwin' ? 1 : 0)
+    if (process.platform === 'darwin') {
+      expect(harness.app.dock.setIcon).toHaveBeenCalledWith(join(harness.app.getAppPath(), 'resources', 'icon.png'))
+    }
     harness.prepared.resolve()
     await harness.hostStarted.promise
     const project = join(harness.app.getAppPath(), '.desktop-build', 'development', 'project')
